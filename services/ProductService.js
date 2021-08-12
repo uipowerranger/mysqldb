@@ -1,4 +1,5 @@
 const knex = require("../helpers/db_connect");
+const moment = require("moment");
 
 const validateCategory = async ({ category }) => {
   return await knex("category")
@@ -70,7 +71,7 @@ const productStore = async ({
     vs[0].count > 0 &&
     vp[0].count > 0
   ) {
-    await knex("products").insert({
+    let id = await knex("products").insert({
       offer_from_date,
       offer_to_date,
       items_available,
@@ -94,10 +95,27 @@ const productStore = async ({
       units,
       status,
     });
-    return {
-      status: 200,
-      message: "Product saved successfully",
-    };
+    if (id) {
+      await knex("stock_movement").insert({
+        date: moment().format("YYYY-MM-DD"),
+        user,
+        order_id: 0,
+        item_id: id[0],
+        quantity: items_available,
+        status: 1,
+        transactionType: "By Create",
+      });
+      return {
+        status: 200,
+        message: "Product saved successfully",
+        item_id: id[0],
+      };
+    } else {
+      return {
+        status: 500,
+        message: "Product saved failed",
+      };
+    }
   } else {
     return {
       status: 500,
@@ -184,7 +202,21 @@ const productUpdate = async ({
   }
 };
 
+const productDelete = async ({ id, status }) => {
+  return await knex("products")
+    .update({
+      status: status,
+    })
+    .where({ id: id });
+};
+
+const allProducts = async () => {
+  return await knex("products").select();
+};
+
 module.exports = {
   productStore,
   productUpdate,
+  productDelete,
+  allProducts,
 };

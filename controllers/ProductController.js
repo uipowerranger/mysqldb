@@ -1,4 +1,9 @@
-const { productStore, productUpdate } = require("../services/ProductService");
+const {
+  productStore,
+  productUpdate,
+  productDelete,
+  allProducts,
+} = require("../services/ProductService");
 const { body, query, validationResult } = require("express-validator");
 const apiResponse = require("../helpers/apiResponse");
 const auth = require("../middlewares/jwt");
@@ -1027,6 +1032,20 @@ exports.ProductStore = [
 exports.ProductUpdate = [
   auth,
   body("item_name", "Name must not be empty.").isLength({ min: 1 }).trim(),
+  body("category_details", "Category must not be empty")
+    .isLength({ min: 1 })
+    .trim(),
+  body("sub_category_details", "Sub Category must not be empty.")
+    .isLength({ min: 1 })
+    .withMessage("Minimum 1 characters.")
+    .trim()
+    .escape(),
+  body("state_details", "State must not be empty").isLength({ min: 1 }).trim(),
+  body("post_code_details", "Post Code must not be empty.")
+    .isLength({ min: 1 })
+    .withMessage("Minimum 1 characters.")
+    .trim()
+    .escape(),
   async (req, res) => {
     try {
       const errors = validationResult(req);
@@ -1064,39 +1083,17 @@ exports.ProductUpdate = [
  */
 exports.ProductDelete = [
   auth,
-  function (req, res) {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return apiResponse.validationErrorWithData(
-        res,
-        "Invalid Error.",
-        "Invalid ID"
-      );
-    }
+  async function (req, res) {
     try {
-      ProductModel.findById(req.params.id, function (err, foundProduct) {
-        if (foundProduct === null) {
-          return apiResponse.notFoundResponse(
-            res,
-            "Product not exists with this id"
-          );
-        } else {
-          //delete Product.
-          ProductModel.findByIdAndUpdate(
-            req.params.id,
-            { status: req.params.status },
-            function (err) {
-              if (err) {
-                return apiResponse.ErrorResponse(res, err);
-              } else {
-                return apiResponse.successResponse(
-                  res,
-                  "Product status update Success."
-                );
-              }
-            }
-          );
-        }
+      let del = await productDelete({
+        id: req.params.id,
+        status: req.params.status,
       });
+      if (del) {
+        return apiResponse.successResponse(res, "Product delete success");
+      } else {
+        return apiResponse.ErrorResponse(res, "Product delete failed");
+      }
     } catch (err) {
       //throw error in json response with status 500.
       return apiResponse.ErrorResponse(res, err);
