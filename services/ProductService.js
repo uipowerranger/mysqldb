@@ -210,8 +210,378 @@ const productDelete = async ({ id, status }) => {
     .where({ id: id });
 };
 
+const getStock = async (id) => {
+  let buy = await knex("stock_movement")
+    .sum(`quantity as buy_quantity`)
+    .where({ item_id: id, status: 1 });
+  let sell = await knex("stock_movement")
+    .sum(`quantity as sell_quantity`)
+    .where({ item_id: id, status: 2 });
+  return Number(buy[0].buy_quantity) - Number(sell[0].sell_quantity);
+};
+
 const allProducts = async () => {
-  return await knex("products").select();
+  let data = await knex("products")
+    .join("states", "products.state_details", "=", "states.id")
+    .join("category", "products.category_details", "=", "category.id")
+    .join(
+      "sub_category",
+      "products.sub_category_details",
+      "=",
+      "sub_category.id"
+    )
+    .join("post_codes", "products.post_code_details", "=", "post_codes.id")
+    .select(
+      `products.id`,
+      `products.offer_from_date`,
+      `products.offer_to_date`,
+      `products.price`,
+      `products.actualPrice`,
+      `products.weight`,
+      `products.category_details as category_id`,
+      `products.sub_category_details as sub_category_id`,
+      `products.state_details as state_id`,
+      `products.post_code_details as post_code_id`,
+      `products.deal_details`,
+      `products.image`,
+      `products.offer_details`,
+      `products.has_deal`,
+      `products.has_offer`,
+      `products.home_page_display`,
+      `products.item_name`,
+      `products.user`,
+      `products.status`,
+      `products.homepage_filter`,
+      `products.description`,
+      `products.units`,
+      `category.category_name`,
+      `post_codes.post_code`,
+      `sub_category.sub_category_name`,
+      `states.state_name`
+    )
+    .whereNot({ "products.status": 3 });
+  let final_data = [];
+  for (const element of data) {
+    element.items_available = await getStock(element.id);
+    final_data.push(element);
+  }
+  return final_data;
+};
+
+const productsBySubCategory = async (id) => {
+  let data = await knex("products")
+    .join("states", "products.state_details", "=", "states.id")
+    .join("category", "products.category_details", "=", "category.id")
+    .join(
+      "sub_category",
+      "products.sub_category_details",
+      "=",
+      "sub_category.id"
+    )
+    .join("post_codes", "products.post_code_details", "=", "post_codes.id")
+    .select(
+      `products.id`,
+      `products.offer_from_date`,
+      `products.offer_to_date`,
+      `products.price`,
+      `products.actualPrice`,
+      `products.weight`,
+      `products.category_details as category_id`,
+      `products.sub_category_details as sub_category_id`,
+      `products.state_details as state_id`,
+      `products.post_code_details as post_code_id`,
+      `products.deal_details`,
+      `products.image`,
+      `products.offer_details`,
+      `products.has_deal`,
+      `products.has_offer`,
+      `products.home_page_display`,
+      `products.item_name`,
+      `products.user`,
+      `products.status`,
+      `products.homepage_filter`,
+      `products.description`,
+      `products.units`,
+      `category.category_name`,
+      `post_codes.post_code`,
+      `sub_category.sub_category_name`,
+      `states.state_name`
+    )
+    .where({ sub_category_details: id })
+    .whereNot({ "products.status": 3 });
+  let final_data = [];
+  for (const element of data) {
+    element.items_available = await getStock(element.id);
+    final_data.push(element);
+  }
+  return final_data;
+};
+
+const productsByCategory = async (id) => {
+  let data = await knex("products")
+    .join("states", "products.state_details", "=", "states.id")
+    .join("category", "products.category_details", "=", "category.id")
+    .join(
+      "sub_category",
+      "products.sub_category_details",
+      "=",
+      "sub_category.id"
+    )
+    .join("post_codes", "products.post_code_details", "=", "post_codes.id")
+    .select(
+      `products.id`,
+      `products.offer_from_date`,
+      `products.offer_to_date`,
+      `products.price`,
+      `products.actualPrice`,
+      `products.weight`,
+      `products.category_details as category_id`,
+      `products.sub_category_details as sub_category_id`,
+      `products.state_details as state_id`,
+      `products.post_code_details as post_code_id`,
+      `products.deal_details`,
+      `products.image`,
+      `products.offer_details`,
+      `products.has_deal`,
+      `products.has_offer`,
+      `products.home_page_display`,
+      `products.item_name`,
+      `products.user`,
+      `products.status`,
+      `products.homepage_filter`,
+      `products.description`,
+      `products.units`,
+      `category.category_name`,
+      `post_codes.post_code`,
+      `sub_category.sub_category_name`,
+      `states.state_name`
+    )
+    .where({ category_details: id })
+    .whereNot({ "products.status": 3 });
+  let final_data = [];
+  for (const element of data) {
+    element.items_available = await getStock(element.id);
+    final_data.push(element);
+  }
+  return final_data;
+};
+
+const productsByState = async (id) => {
+  let data = await knex("products")
+    .join("states", "products.state_details", "=", "states.id")
+    .join("category", "products.category_details", "=", "category.id")
+    .join(
+      "sub_category",
+      "products.sub_category_details",
+      "=",
+      "sub_category.id"
+    )
+    .join("post_codes", "products.post_code_details", "=", "post_codes.id")
+    .select(
+      `products.id`,
+      `products.offer_from_date`,
+      `products.offer_to_date`,
+      `products.price`,
+      `products.actualPrice`,
+      `products.weight`,
+      `products.category_details as category_id`,
+      `products.sub_category_details as sub_category_id`,
+      `products.state_details as state_id`,
+      `products.post_code_details as post_code_id`,
+      `products.deal_details`,
+      `products.image`,
+      `products.offer_details`,
+      `products.has_deal`,
+      `products.has_offer`,
+      `products.home_page_display`,
+      `products.item_name`,
+      `products.user`,
+      `products.status`,
+      `products.homepage_filter`,
+      `products.description`,
+      `products.units`,
+      `category.category_name`,
+      `post_codes.post_code`,
+      `sub_category.sub_category_name`,
+      `states.state_name`
+    )
+    .where({ "products.state_details": id })
+    .whereNot({ "products.status": 3 });
+  let final_data = [];
+  for (const element of data) {
+    element.items_available = await getStock(element.id);
+    final_data.push(element);
+  }
+  return final_data;
+};
+
+const productSearchByState = async ({ state_id, search_string }) => {
+  let data = await knex("products")
+    .join("states", "products.state_details", "=", "states.id")
+    .join("category", "products.category_details", "=", "category.id")
+    .join(
+      "sub_category",
+      "products.sub_category_details",
+      "=",
+      "sub_category.id"
+    )
+    .join("post_codes", "products.post_code_details", "=", "post_codes.id")
+    .select(
+      `products.id`,
+      `products.offer_from_date`,
+      `products.offer_to_date`,
+      `products.price`,
+      `products.actualPrice`,
+      `products.weight`,
+      `products.category_details as category_id`,
+      `products.sub_category_details as sub_category_id`,
+      `products.state_details as state_id`,
+      `products.post_code_details as post_code_id`,
+      `products.deal_details`,
+      `products.image`,
+      `products.offer_details`,
+      `products.has_deal`,
+      `products.has_offer`,
+      `products.home_page_display`,
+      `products.item_name`,
+      `products.user`,
+      `products.status`,
+      `products.homepage_filter`,
+      `products.description`,
+      `products.units`,
+      `category.category_name`,
+      `post_codes.post_code`,
+      `sub_category.sub_category_name`,
+      `states.state_name`
+    )
+    .where({
+      "products.state_details": state_id,
+    })
+    .where("products.item_name", "like", `%${search_string}%`)
+    .whereNot({ "products.status": 3 });
+  let final_data = [];
+  for (const element of data) {
+    element.items_available = await getStock(element.id);
+    final_data.push(element);
+  }
+  return final_data;
+};
+
+const productsByStateCategory = async ({ state_id, category_id }) => {
+  let data = await knex("products")
+    .join("states", "products.state_details", "=", "states.id")
+    .join("category", "products.category_details", "=", "category.id")
+    .join(
+      "sub_category",
+      "products.sub_category_details",
+      "=",
+      "sub_category.id"
+    )
+    .join("post_codes", "products.post_code_details", "=", "post_codes.id")
+    .select(
+      `products.id`,
+      `products.offer_from_date`,
+      `products.offer_to_date`,
+      `products.price`,
+      `products.actualPrice`,
+      `products.weight`,
+      `products.category_details as category_id`,
+      `products.sub_category_details as sub_category_id`,
+      `products.state_details as state_id`,
+      `products.post_code_details as post_code_id`,
+      `products.deal_details`,
+      `products.image`,
+      `products.offer_details`,
+      `products.has_deal`,
+      `products.has_offer`,
+      `products.home_page_display`,
+      `products.item_name`,
+      `products.user`,
+      `products.status`,
+      `products.homepage_filter`,
+      `products.description`,
+      `products.units`,
+      `category.category_name`,
+      `post_codes.post_code`,
+      `sub_category.sub_category_name`,
+      `states.state_name`
+    )
+    .where({
+      "products.state_details": state_id,
+      "products.category_details": category_id,
+    })
+    .whereNot({ "products.status": 3 });
+  let final_data = [];
+  for (const element of data) {
+    element.items_available = await getStock(element.id);
+    final_data.push(element);
+  }
+  return final_data;
+};
+
+const allProductsList = async () => {
+  let data = await knex("products")
+    .join("states", "products.state_details", "=", "states.id")
+    .join("category", "products.category_details", "=", "category.id")
+    .join(
+      "sub_category",
+      "products.sub_category_details",
+      "=",
+      "sub_category.id"
+    )
+    .join("post_codes", "products.post_code_details", "=", "post_codes.id")
+    .select(
+      `products.id`,
+      `products.offer_from_date`,
+      `products.offer_to_date`,
+      `products.price`,
+      `products.actualPrice`,
+      `products.weight`,
+      `products.category_details as category_id`,
+      `products.sub_category_details as sub_category_id`,
+      `products.state_details as state_id`,
+      `products.post_code_details as post_code_id`,
+      `products.deal_details`,
+      `products.image`,
+      `products.offer_details`,
+      `products.has_deal`,
+      `products.has_offer`,
+      `products.home_page_display`,
+      `products.item_name`,
+      `products.user`,
+      `products.status`,
+      `products.homepage_filter`,
+      `products.description`,
+      `products.units`,
+      `category.category_name`,
+      `post_codes.post_code`,
+      `sub_category.sub_category_name`,
+      `states.state_name`
+    )
+    .whereNot({ "products.status": 3 });
+  let final_data = [];
+  let filters = await knex("filters")
+    .select(`filter_name`)
+    .whereNot({ status: 3 });
+  let filterList = filters.map((p) => {
+    return {
+      name: p.filter_name,
+      prod_list: [],
+    };
+  });
+  for (const element of data) {
+    element.items_available = await getStock(element.id);
+    final_data.push(element);
+  }
+  final_data.map((prod) => {
+    let i = filterList.findIndex((f) => f.name === prod.homepage_filter);
+    let fIndex = i;
+    if (fIndex !== -1) {
+      filterList[fIndex].prod_list.push(prod);
+    }
+    return prod;
+  });
+  return filterList.filter((d) => d.prod_list.length > 0);
 };
 
 module.exports = {
@@ -219,4 +589,10 @@ module.exports = {
   productUpdate,
   productDelete,
   allProducts,
+  productsByState,
+  allProductsList,
+  productSearchByState,
+  productsByCategory,
+  productsBySubCategory,
+  productsByStateCategory,
 };

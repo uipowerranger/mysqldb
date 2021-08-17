@@ -3,11 +3,16 @@ const {
   productUpdate,
   productDelete,
   allProducts,
+  allProductsList,
+  productsByState,
+  productsByCategory,
+  productsBySubCategory,
+  productSearchByState,
+  productsByStateCategory,
 } = require("../services/ProductService");
 const { body, query, validationResult } = require("express-validator");
 const apiResponse = require("../helpers/apiResponse");
 const auth = require("../middlewares/jwt");
-const moment = require("moment");
 
 /**
  * By State
@@ -16,148 +21,8 @@ const moment = require("moment");
 exports.ProductListByState = [
   async function (req, res) {
     try {
-      ProductModel.aggregate([
-        {
-          $lookup: {
-            from: "categories",
-            localField: "category_details",
-            foreignField: "_id",
-            as: "map_category",
-          },
-        },
-        {
-          $unwind: "$map_category",
-        },
-        {
-          $lookup: {
-            from: "sub_categories",
-            localField: "sub_category_details",
-            foreignField: "_id",
-            as: "map_sub_category",
-          },
-        },
-        {
-          $unwind: "$map_sub_category",
-        },
-        {
-          $lookup: {
-            from: "states",
-            localField: "state_details",
-            foreignField: "_id",
-            as: "map_state",
-          },
-        },
-        {
-          $unwind: "$map_state",
-        },
-        {
-          $lookup: {
-            from: "postcodes",
-            localField: "post_code_details",
-            foreignField: "_id",
-            as: "map_postcode",
-          },
-        },
-        {
-          $unwind: "$map_postcode",
-        },
-        {
-          $lookup: {
-            from: "stockmovements",
-            localField: "_id",
-            foreignField: "item_id",
-            as: "stockmovements",
-          },
-        },
-        {
-          $match: {
-            state_details: mongoose.Types.ObjectId(req.params.id),
-          },
-        },
-        {
-          $project: {
-            offer_from_date: 1,
-            offer_to_date: 1,
-            price: 1,
-            deal_details: 1,
-            offer_details: 1,
-            has_deal: 1,
-            has_offer: 1,
-            home_page_display: 1,
-            status: 1,
-            user: 1,
-            item_name: 1,
-            category_details: 1,
-            image: 1,
-            post_code_details: 1,
-            state_details: 1,
-            sub_category_details: 1,
-            weight: 1,
-            units: 1,
-            actualPrice: 1,
-            description: 1,
-            homepage_filter: 1,
-            createdAt: 1,
-            "map_category._id": 1,
-            "map_category.category_name": 1,
-            "map_sub_category._id": 1,
-            "map_sub_category.sub_category_name": 1,
-            "map_state._id": 1,
-            "map_state.state_name": 1,
-            "map_postcode._id": 1,
-            "map_postcode.post_code": 1,
-            stockmovements: 1,
-          },
-        },
-      ]).then(async (products) => {
-        if (products.length > 0) {
-          let filters = await new Promise((resolve, reject) => {
-            FilterModel.find({ status: 1 })
-              .then((res) => resolve(res))
-              .catch((e) => reject([]));
-          });
-          let filterList = filters.map((p) => {
-            return {
-              name: p.filter_name,
-              prod_list: [],
-            };
-          });
-          products.map((prod) => {
-            let totalStock = 0;
-            prod.stockmovements.map((st) => {
-              if (st.status === 2) {
-                totalStock = totalStock + st.quantity;
-              } else {
-                totalStock = totalStock - st.quantity;
-              }
-            });
-            delete prod.stockmovements;
-            let i = filterList.findIndex(
-              (f) => f.name === prod.homepage_filter
-            );
-            let fIndex = i === -1 ? 0 : i;
-            filterList[fIndex].prod_list.push({
-              ...prod,
-              items_available: totalStock,
-            });
-            return {
-              ...prod,
-              items_available: totalStock,
-            };
-          });
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            filterList.filter((d) => d.prod_list.length > 0)
-          );
-        } else {
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            []
-          );
-        }
-      });
+      let data = await productsByState(req.params.id);
+      return apiResponse.successResponseWithData(res, "Success", data);
     } catch (err) {
       //throw error in json response with status 500.
       return apiResponse.ErrorResponse(res, err);
@@ -170,7 +35,7 @@ exports.ProductListSearchByState = [
   body("search_string", "Search must be minimum 3 characters")
     .isLength({ min: 3 })
     .trim(),
-  function (req, res) {
+  async function (req, res) {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -180,69 +45,8 @@ exports.ProductListSearchByState = [
           errors.array()
         );
       } else {
-        const rgx = (pattern) => new RegExp(`.*${pattern}.*`);
-        const searchRgx = rgx(req.body.search_string);
-        ProductModel.aggregate([
-          {
-            $lookup: {
-              from: "categories",
-              localField: "category_details",
-              foreignField: "_id",
-              as: "category",
-            },
-          },
-          {
-            $unwind: "$category",
-          },
-          {
-            $match: {
-              state_details: mongoose.Types.ObjectId(req.body.state_id),
-              item_name: { $regex: searchRgx, $options: "i" },
-            },
-          },
-          {
-            $project: {
-              offer_from_date: 1,
-              offer_to_date: 1,
-              price: 1,
-              deal_details: 1,
-              offer_details: 1,
-              has_deal: 1,
-              has_offer: 1,
-              home_page_display: 1,
-              status: 1,
-              user: 1,
-              item_name: 1,
-              category_details: 1,
-              image: 1,
-              post_code_details: 1,
-              state_details: 1,
-              sub_category_details: 1,
-              weight: 1,
-              units: 1,
-              actualPrice: 1,
-              description: 1,
-              homepage_filter: 1,
-              createdAt: 1,
-              "category._id": 1,
-              "category.category_name": 1,
-            },
-          },
-        ]).then((products) => {
-          if (products.length > 0) {
-            return apiResponse.successResponseWithData(
-              res,
-              "Operation success",
-              products
-            );
-          } else {
-            return apiResponse.successResponseWithData(
-              res,
-              "Operation success",
-              []
-            );
-          }
-        });
+        let data = await productSearchByState(req.body);
+        return apiResponse.successResponseWithData(res, "Success", data);
       }
     } catch (err) {
       //throw error in json response with status 500.
@@ -254,9 +58,9 @@ exports.ProductListSearchByState = [
 exports.ProductListSearchByStateandCategory = [
   body("state_id", "State Id must be required").isLength({ min: 1 }).trim(),
   body("category_id", "Category Id must be required")
-    .isLength({ min: 3 })
+    .isLength({ min: 1 })
     .trim(),
-  function (req, res) {
+  async function (req, res) {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -266,91 +70,8 @@ exports.ProductListSearchByStateandCategory = [
           errors.array()
         );
       } else {
-        ProductModel.aggregate([
-          {
-            $lookup: {
-              from: "categories",
-              localField: "category_details",
-              foreignField: "_id",
-              as: "category",
-            },
-          },
-          {
-            $unwind: "$category",
-          },
-          {
-            $lookup: {
-              from: "stockmovements",
-              localField: "_id",
-              foreignField: "item_id",
-              as: "stockmovements",
-            },
-          },
-          {
-            $match: {
-              state_details: mongoose.Types.ObjectId(req.body.state_id),
-              category_details: mongoose.Types.ObjectId(req.body.category_id),
-            },
-          },
-          {
-            $project: {
-              offer_from_date: 1,
-              offer_to_date: 1,
-              price: 1,
-              deal_details: 1,
-              offer_details: 1,
-              has_deal: 1,
-              has_offer: 1,
-              home_page_display: 1,
-              status: 1,
-              user: 1,
-              item_name: 1,
-              category_details: 1,
-              image: 1,
-              post_code_details: 1,
-              state_details: 1,
-              sub_category_details: 1,
-              weight: 1,
-              units: 1,
-              actualPrice: 1,
-              description: 1,
-              homepage_filter: 1,
-              createdAt: 1,
-              "category._id": 1,
-              "category.category_name": 1,
-              stockmovements: 1,
-            },
-          },
-        ]).then((products) => {
-          if (products.length > 0) {
-            let data = products.map((prod) => {
-              let totalStock = 0;
-              prod.stockmovements.map((st) => {
-                if (st.status === 2) {
-                  totalStock = totalStock + st.quantity;
-                } else {
-                  totalStock = totalStock - st.quantity;
-                }
-              });
-              delete prod.stockmovements;
-              return {
-                ...prod,
-                items_available: totalStock,
-              };
-            });
-            return apiResponse.successResponseWithData(
-              res,
-              "Operation success",
-              data
-            );
-          } else {
-            return apiResponse.successResponseWithData(
-              res,
-              "Operation success",
-              []
-            );
-          }
-        });
+        let data = await productsByStateCategory(req.body);
+        return apiResponse.successResponseWithData(res, "Success", data);
       }
     } catch (err) {
       //throw error in json response with status 500.
@@ -365,131 +86,10 @@ exports.ProductListSearchByStateandCategory = [
  * @returns {Object}
  */
 exports.ProductList = [
-  function (req, res) {
+  async function (req, res) {
     try {
-      ProductModel.aggregate([
-        {
-          $lookup: {
-            from: "categories",
-            localField: "category_details",
-            foreignField: "_id",
-            as: "map_category",
-          },
-        },
-        {
-          $unwind: "$map_category",
-        },
-        {
-          $lookup: {
-            from: "sub_categories",
-            localField: "sub_category_details",
-            foreignField: "_id",
-            as: "map_sub_category",
-          },
-        },
-        {
-          $unwind: "$map_sub_category",
-        },
-        {
-          $lookup: {
-            from: "states",
-            localField: "state_details",
-            foreignField: "_id",
-            as: "map_state",
-          },
-        },
-        {
-          $unwind: "$map_state",
-        },
-        {
-          $lookup: {
-            from: "postcodes",
-            localField: "post_code_details",
-            foreignField: "_id",
-            as: "map_postcode",
-          },
-        },
-        {
-          $unwind: "$map_postcode",
-        },
-        {
-          $lookup: {
-            from: "stockmovements",
-            localField: "_id",
-            foreignField: "item_id",
-            as: "stockmovements",
-          },
-        },
-        // {
-        //   $match: {
-        //     status: { $ne: 3 },
-        //   },
-        // },
-        {
-          $project: {
-            offer_from_date: 1,
-            offer_to_date: 1,
-            price: 1,
-            deal_details: 1,
-            offer_details: 1,
-            has_deal: 1,
-            has_offer: 1,
-            home_page_display: 1,
-            status: 1,
-            user: 1,
-            item_name: 1,
-            category_details: 1,
-            image: 1,
-            post_code_details: 1,
-            state_details: 1,
-            sub_category_details: 1,
-            weight: 1,
-            units: 1,
-            actualPrice: 1,
-            description: 1,
-            homepage_filter: 1,
-            createdAt: 1,
-            "map_category._id": 1,
-            "map_category.category_name": 1,
-            "map_sub_category._id": 1,
-            "map_sub_category.sub_category_name": 1,
-            "map_state._id": 1,
-            "map_state.state_name": 1,
-            "map_postcode._id": 1,
-            "map_postcode.post_code": 1,
-            stockmovements: 1,
-          },
-        },
-      ]).then((products) => {
-        if (products.length > 0) {
-          let data = products.map((prod) => {
-            let totalStock = 0;
-            prod.stockmovements.map((st) => {
-              if (st.status === 2) {
-                totalStock = totalStock + st.quantity;
-              } else {
-                totalStock = totalStock - st.quantity;
-              }
-            });
-            delete prod.stockmovements;
-            return {
-              ...prod,
-              items_available: totalStock,
-            };
-          });
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            data
-          );
-        } else {
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            []
-          );
-        }
-      });
+      let data = await allProducts();
+      return apiResponse.successResponseWithData(res, "Success", data);
     } catch (err) {
       //throw error in json response with status 500.
       return apiResponse.ErrorResponse(res, err);
@@ -502,152 +102,10 @@ exports.ProductList = [
  */
 
 exports.AllProductList = [
-  function (req, res) {
+  async function (req, res) {
     try {
-      ProductModel.aggregate([
-        {
-          $lookup: {
-            from: "categories",
-            localField: "category_details",
-            foreignField: "_id",
-            as: "map_category",
-          },
-        },
-        {
-          $unwind: "$map_category",
-        },
-        {
-          $lookup: {
-            from: "sub_categories",
-            localField: "sub_category_details",
-            foreignField: "_id",
-            as: "map_sub_category",
-          },
-        },
-        {
-          $unwind: "$map_sub_category",
-        },
-        {
-          $lookup: {
-            from: "states",
-            localField: "state_details",
-            foreignField: "_id",
-            as: "map_state",
-          },
-        },
-        {
-          $unwind: "$map_state",
-        },
-        {
-          $lookup: {
-            from: "postcodes",
-            localField: "post_code_details",
-            foreignField: "_id",
-            as: "map_postcode",
-          },
-        },
-        {
-          $unwind: "$map_postcode",
-        },
-        {
-          $lookup: {
-            from: "stockmovements",
-            localField: "_id",
-            foreignField: "item_id",
-            as: "stockmovements",
-          },
-        },
-        {
-          $match: {
-            status: {
-              $ne: 3,
-            },
-          },
-        },
-        {
-          $project: {
-            offer_from_date: 1,
-            offer_to_date: 1,
-            price: 1,
-            deal_details: 1,
-            offer_details: 1,
-            has_deal: 1,
-            has_offer: 1,
-            home_page_display: 1,
-            status: 1,
-            user: 1,
-            item_name: 1,
-            category_details: 1,
-            image: 1,
-            post_code_details: 1,
-            state_details: 1,
-            sub_category_details: 1,
-            weight: 1,
-            units: 1,
-            actualPrice: 1,
-            description: 1,
-            homepage_filter: 1,
-            createdAt: 1,
-            "map_category._id": 1,
-            "map_category.category_name": 1,
-            "map_sub_category._id": 1,
-            "map_sub_category.sub_category_name": 1,
-            "map_state._id": 1,
-            "map_state.state_name": 1,
-            "map_postcode._id": 1,
-            "map_postcode.post_code": 1,
-            stockmovements: 1,
-          },
-        },
-      ]).then(async (products) => {
-        if (products.length > 0) {
-          let filters = await new Promise((resolve, reject) => {
-            FilterModel.find({ status: 1 })
-              .then((res) => resolve(res))
-              .catch((e) => reject([]));
-          });
-          let filterList = filters.map((p) => {
-            return {
-              name: p.filter_name,
-              prod_list: [],
-            };
-          });
-          products.map((prod) => {
-            let totalStock = 0;
-            prod.stockmovements.map((st) => {
-              if (st.status === 2) {
-                totalStock = totalStock + st.quantity;
-              } else {
-                totalStock = totalStock - st.quantity;
-              }
-            });
-            delete prod.stockmovements;
-            let i = filterList.findIndex(
-              (f) => f.name === prod.homepage_filter
-            );
-            let fIndex = i === -1 ? 0 : i;
-            filterList[fIndex].prod_list.push({
-              ...prod,
-              items_available: totalStock,
-            });
-            return {
-              ...prod,
-              items_available: totalStock,
-            };
-          });
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            filterList.filter((d) => d.prod_list.length > 0)
-          );
-        } else {
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            []
-          );
-        }
-      });
+      let data = await allProductsList();
+      return apiResponse.successResponseWithData(res, "Success", data);
     } catch (err) {
       //throw error in json response with status 500.
       return apiResponse.ErrorResponse(res, err);
@@ -660,140 +118,10 @@ exports.AllProductList = [
  */
 
 exports.ProductListByCategory = [
-  (req, res) => {
+  async (req, res) => {
     try {
-      if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-        return apiResponse.validationErrorWithData(
-          res,
-          "Invalid Id",
-          "Invalid Category Id"
-        );
-      }
-      ProductModel.aggregate([
-        {
-          $lookup: {
-            from: "categories",
-            localField: "category_details",
-            foreignField: "_id",
-            as: "map_category",
-          },
-        },
-        {
-          $unwind: "$map_category",
-        },
-        {
-          $lookup: {
-            from: "sub_categories",
-            localField: "sub_category_details",
-            foreignField: "_id",
-            as: "map_sub_category",
-          },
-        },
-        {
-          $unwind: "$map_sub_category",
-        },
-        {
-          $lookup: {
-            from: "states",
-            localField: "state_details",
-            foreignField: "_id",
-            as: "map_state",
-          },
-        },
-        {
-          $unwind: "$map_state",
-        },
-        {
-          $lookup: {
-            from: "postcodes",
-            localField: "post_code_details",
-            foreignField: "_id",
-            as: "map_postcode",
-          },
-        },
-        {
-          $unwind: "$map_postcode",
-        },
-        {
-          $lookup: {
-            from: "stockmovements",
-            localField: "_id",
-            foreignField: "item_id",
-            as: "stockmovements",
-          },
-        },
-        {
-          $match: {
-            category_details: {
-              $eq: mongoose.Types.ObjectId(req.params.id),
-            },
-          },
-        },
-        {
-          $project: {
-            offer_from_date: 1,
-            offer_to_date: 1,
-            price: 1,
-            deal_details: 1,
-            offer_details: 1,
-            has_deal: 1,
-            has_offer: 1,
-            home_page_display: 1,
-            status: 1,
-            user: 1,
-            item_name: 1,
-            category_details: 1,
-            image: 1,
-            post_code_details: 1,
-            state_details: 1,
-            sub_category_details: 1,
-            weight: 1,
-            units: 1,
-            actualPrice: 1,
-            description: 1,
-            homepage_filter: 1,
-            createdAt: 1,
-            "map_category._id": 1,
-            "map_category.category_name": 1,
-            "map_sub_category._id": 1,
-            "map_sub_category.sub_category_name": 1,
-            "map_state._id": 1,
-            "map_state.state_name": 1,
-            "map_postcode._id": 1,
-            "map_postcode.post_code": 1,
-            stockmovements: 1,
-          },
-        },
-      ]).then((products) => {
-        if (products.length > 0) {
-          let data = products.map((prod) => {
-            let totalStock = 0;
-            prod.stockmovements.map((st) => {
-              if (st.status === 2) {
-                totalStock = totalStock + st.quantity;
-              } else {
-                totalStock = totalStock - st.quantity;
-              }
-            });
-            delete prod.stockmovements;
-            return {
-              ...prod,
-              items_available: totalStock,
-            };
-          });
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            data
-          );
-        } else {
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            []
-          );
-        }
-      });
+      let data = await productsByCategory(req.params.id);
+      return apiResponse.successResponseWithData(res, "Success", data);
     } catch (err) {
       //throw error in json response with status 500.
       return apiResponse.ErrorResponse(res, err);
@@ -806,141 +134,10 @@ exports.ProductListByCategory = [
  */
 
 exports.ProductListBySubCategory = [
-  function (req, res) {
+  async function (req, res) {
     try {
-      if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-        return apiResponse.validationErrorWithData(
-          res,
-          "Invalid Id",
-          "Invalid Sub Category Id"
-        );
-      }
-      ProductModel.aggregate([
-        {
-          $lookup: {
-            from: "categories",
-            localField: "category_details",
-            foreignField: "_id",
-            as: "map_category",
-          },
-        },
-        {
-          $unwind: "$map_category",
-        },
-        {
-          $lookup: {
-            from: "sub_categories",
-            localField: "sub_category_details",
-            foreignField: "_id",
-            as: "map_sub_category",
-          },
-        },
-        {
-          $unwind: "$map_sub_category",
-        },
-        {
-          $lookup: {
-            from: "states",
-            localField: "state_details",
-            foreignField: "_id",
-            as: "map_state",
-          },
-        },
-        {
-          $unwind: "$map_state",
-        },
-        {
-          $lookup: {
-            from: "postcodes",
-            localField: "post_code_details",
-            foreignField: "_id",
-            as: "map_postcode",
-          },
-        },
-        {
-          $unwind: "$map_postcode",
-        },
-        {
-          $lookup: {
-            from: "stockmovements",
-            localField: "_id",
-            foreignField: "item_id",
-            as: "stockmovements",
-          },
-        },
-        {
-          $match: {
-            sub_category_details: {
-              $eq: mongoose.Types.ObjectId(req.params.id),
-            },
-          },
-        },
-
-        {
-          $project: {
-            offer_from_date: 1,
-            offer_to_date: 1,
-            price: 1,
-            deal_details: 1,
-            offer_details: 1,
-            has_deal: 1,
-            has_offer: 1,
-            home_page_display: 1,
-            status: 1,
-            user: 1,
-            item_name: 1,
-            category_details: 1,
-            image: 1,
-            post_code_details: 1,
-            state_details: 1,
-            sub_category_details: 1,
-            weight: 1,
-            units: 1,
-            actualPrice: 1,
-            description: 1,
-            homepage_filter: 1,
-            createdAt: 1,
-            "map_category._id": 1,
-            "map_category.category_name": 1,
-            "map_sub_category._id": 1,
-            "map_sub_category.sub_category_name": 1,
-            "map_state._id": 1,
-            "map_state.state_name": 1,
-            "map_postcode._id": 1,
-            "map_postcode.post_code": 1,
-            stockmovements: 1,
-          },
-        },
-      ]).then((products) => {
-        if (products.length > 0) {
-          let data = products.map((prod) => {
-            let totalStock = 0;
-            prod.stockmovements.map((st) => {
-              if (st.status === 2) {
-                totalStock = totalStock + st.quantity;
-              } else {
-                totalStock = totalStock - st.quantity;
-              }
-            });
-            delete prod.stockmovements;
-            return {
-              ...prod,
-              items_available: totalStock,
-            };
-          });
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            data
-          );
-        } else {
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            []
-          );
-        }
-      });
+      let data = await productsBySubCategory(req.params.id);
+      return apiResponse.successResponseWithData(res, "Success", data);
     } catch (err) {
       //throw error in json response with status 500.
       return apiResponse.ErrorResponse(res, err);
