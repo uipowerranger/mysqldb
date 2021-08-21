@@ -1,6 +1,3 @@
-const CheckoutModel = require("../models/CheckoutModel");
-const ProductModel = require("../models/ProductModel");
-const WishlistModel = require("../models/WishlistModel");
 const { body, validationResult } = require("express-validator");
 //helper file to prepare responses.
 const apiResponse = require("../helpers/apiResponse");
@@ -9,8 +6,6 @@ const jwt = require("jsonwebtoken");
 const auth = require("../middlewares/jwt");
 const mailer = require("../helpers/mailer");
 const { constants } = require("../helpers/constants");
-var mongoose = require("mongoose");
-mongoose.set("useFindAndModify", false);
 
 /**
  * User registration.
