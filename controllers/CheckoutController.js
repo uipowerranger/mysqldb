@@ -1,3 +1,10 @@
+const {
+  create,
+  list,
+  checkDelete,
+  checkDeleteAll,
+  update,
+} = require("../services/CheckoutService");
 const { body, validationResult } = require("express-validator");
 //helper file to prepare responses.
 const apiResponse = require("../helpers/apiResponse");
@@ -6,7 +13,7 @@ const jwt = require("jsonwebtoken");
 const auth = require("../middlewares/jwt");
 const mailer = require("../helpers/mailer");
 const { constants } = require("../helpers/constants");
-
+const moment = require("moment");
 /**
  * User registration.
  *
@@ -25,7 +32,7 @@ exports.create = [
   body("price", "Price must be a Decimal").exists().isDecimal(),
   body("amount", "Amount must be a Decimal").exists().isDecimal(),
   // Process request after validation and sanitization.
-  (req, res) => {
+  async (req, res) => {
     try {
       // Extract the validation errors from a request.
       const errors = validationResult(req);
@@ -37,58 +44,17 @@ exports.create = [
           errors.array()
         );
       } else {
-        const { _id, ...rest } = req.body;
-        CheckoutModel.find(
-          { user: req.user._id, item_id: req.body.item_id },
-          (err, existData) => {
-            if (!err) {
-              if (existData.length === 0) {
-                var order = new CheckoutModel({
-                  user: req.user._id,
-                  ...rest,
-                });
-                // Save order.
-                order.save(function (err) {
-                  if (err) {
-                    return apiResponse.ErrorResponse(res, err);
-                  }
-                  let orderData = {
-                    _id: order._id,
-                    createdAt: order.createdAt,
-                  };
-                  return apiResponse.successResponseWithData(
-                    res,
-                    "Checkout Success.",
-                    orderData
-                  );
-                });
-              } else {
-                let oldData = existData[0];
-                CheckoutModel.findByIdAndUpdate(
-                  { _id: oldData._id },
-                  rest,
-                  {},
-                  (err, respData) => {
-                    if (err) {
-                      return apiResponse.ErrorResponse(res, err);
-                    }
-                    let orderData = {
-                      _id: respData._id,
-                      createdAt: respData.createdAt,
-                    };
-                    return apiResponse.successResponseWithData(
-                      res,
-                      "Checkout Success.",
-                      orderData
-                    );
-                  }
-                );
-              }
-            } else {
-              return apiResponse.ErrorResponse(res, err);
-            }
-          }
-        );
+        let data = await create({
+          ...req.body,
+          status: 1,
+          user: req.user._id,
+          checkout_date: moment().format("YYYY-MM-DD"),
+        });
+        if (data) {
+          return apiResponse.successResponse(res, "Checkout Added");
+        } else {
+          return apiResponse.ErrorResponse(res, "Error");
+        }
       }
     } catch (err) {
       //throw error in json response with status 500.
@@ -128,66 +94,13 @@ exports.Bulkcreate = [
         );
       } else {
         const { _id, items } = req.body;
-        items.map((item) => {
-          CheckoutModel.find(
-            { user: req.user._id, item_id: item.item_id },
-            (err, existData) => {
-              if (!err) {
-                if (existData.length === 0) {
-                  var order = new CheckoutModel({
-                    user: req.user._id,
-                    ...item,
-                  });
-                  // Save order.
-                  order.save(function (err) {
-                    if (err) {
-                      return {
-                        err: "error on add",
-                      };
-                    }
-                    let orderData = {
-                      _id: order._id,
-                      createdAt: order.createdAt,
-                    };
-                    return {
-                      message: "Checkout Success.",
-                      data: orderData,
-                    };
-                  });
-                } else {
-                  let oldData = existData[0];
-                  CheckoutModel.findByIdAndUpdate(
-                    { _id: oldData._id },
-                    item,
-                    {},
-                    (err, respData) => {
-                      if (err) {
-                        return {
-                          err: "error on old add",
-                        };
-                      }
-                      let orderData = {
-                        _id: respData._id,
-                        createdAt: respData.createdAt,
-                      };
-                      return {
-                        message: "Checkout Success.",
-                        data: orderData,
-                      };
-                    }
-                  );
-                }
-              } else {
-                return {
-                  err: "err",
-                };
-              }
-            }
-          );
-          WishlistModel.findOneAndDelete(
-            { user: req.user._id, _id: item._id },
-            {}
-          ).then((data) => {});
+        items.map(async (item) => {
+          let data = await create({
+            ...item,
+            status: 1,
+            user: req.user._id,
+            checkout_date: moment().format("YYYY-MM-DD"),
+          });
         });
         return apiResponse.successResponse(res, "Checkout Added");
       }
@@ -204,45 +117,14 @@ exports.Bulkcreate = [
 
 exports.CheckoutList = [
   auth,
-  function (req, res) {
+  async function (req, res) {
     try {
-      CheckoutModel.aggregate([
-        {
-          $lookup: {
-            from: "products",
-            localField: "item_id",
-            foreignField: "_id",
-            as: "map_product",
-          },
-        },
-        {
-          $unwind: "$map_product",
-        },
-        {
-          $match: {
-            user: { $eq: mongoose.Types.ObjectId(req.user._id) },
-          },
-        },
-        {
-          $project: {
-            __v: 0,
-          },
-        },
-      ]).then((orders) => {
-        if (orders.length > 0) {
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            orders
-          );
-        } else {
-          return apiResponse.successResponseWithData(
-            res,
-            "Operation success",
-            []
-          );
-        }
-      });
+      let orders = await list(req.user._id);
+      return apiResponse.successResponseWithData(
+        res,
+        "Operation success",
+        orders
+      );
     } catch (err) {
       //throw error in json response with status 500.
       return apiResponse.ErrorResponse(res, err);
@@ -256,18 +138,13 @@ exports.CheckoutList = [
 
 exports.delete = [
   auth,
-  (req, res) => {
+  async (req, res) => {
     try {
-      if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-        return apiResponse.validationErrorWithData(
-          res,
-          "Invalid Id",
-          "Invalid Id"
-        );
+      let del = await checkDelete(req.params.id);
+      if (del) {
+        return apiResponse.successResponse(res, "Delete Success");
       } else {
-        CheckoutModel.findByIdAndRemove(req.params.id).then((resp) => {
-          return apiResponse.successResponse(res, "Deleted");
-        });
+        return apiResponse.ErrorResponse(res, "Delete Failed");
       }
     } catch (err) {
       return apiResponse.ErrorResponse(res, err);
@@ -278,7 +155,7 @@ exports.delete = [
 exports.deleteByUser = [
   auth,
   body("user_id", "User id is required").exists(),
-  (req, res) => {
+  async (req, res) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -289,16 +166,11 @@ exports.deleteByUser = [
           errors.array()
         );
       } else {
-        if (!mongoose.Types.ObjectId.isValid(req.body.user_id)) {
-          return apiResponse.validationErrorWithData(
-            res,
-            "Invalid Id",
-            "Invalid Id"
-          );
+        let del = await checkDeleteAll(req.body.user_id);
+        if (del) {
+          return apiResponse.successResponse(res, "Delete Success");
         } else {
-          CheckoutModel.deleteMany({ user: req.body.user_id }).then((resp) => {
-            return apiResponse.successResponse(res, "Deleted");
-          });
+          return apiResponse.ErrorResponse(res, "Delete Failed");
         }
       }
     } catch (err) {
@@ -314,7 +186,7 @@ exports.Update = [
   body("price", "Price must be a Decimal").exists().isDecimal(),
   body("amount", "Amount must be a Decimal").exists().isDecimal(),
   // Process request after validation and sanitization.
-  (req, res) => {
+  async (req, res) => {
     try {
       // Extract the validation errors from a request.
       const errors = validationResult(req);
@@ -325,44 +197,19 @@ exports.Update = [
           "Validation Error.",
           errors.array()
         );
-      } else if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-        return apiResponse.validationErrorWithData(
-          res,
-          "Invalid Error.",
-          "Invalid ID"
-        );
       } else {
-        const { _id, ...rest } = req.body;
-        var order = new CheckoutModel({
+        let dd = await update({
+          ...req.body,
+          status: 1,
           user: req.user._id,
-          ...rest,
-          _id: req.params.id,
+          checkout_date: moment().format("YYYY-MM-DD"),
+          id: req.params.id,
         });
-        CheckoutModel.findById(req.params.id, function (err, foundData) {
-          if (foundData === null) {
-            return apiResponse.notFoundResponse(
-              res,
-              "Checkout not exists with this id"
-            );
-          } else {
-            // Update order.
-            CheckoutModel.findByIdAndUpdate(
-              req.params.id,
-              order,
-              {},
-              function (err) {
-                if (err) {
-                  return apiResponse.ErrorResponse(res, err);
-                }
-                return apiResponse.successResponseWithData(
-                  res,
-                  "Checkout Updated.",
-                  order
-                );
-              }
-            );
-          }
-        });
+        if (dd) {
+          return apiResponse.successResponse(res, "Checkout Updated");
+        } else {
+          return apiResponse.ErrorResponse(res, "Update Failed");
+        }
       }
     } catch (err) {
       //throw error in json response with status 500.

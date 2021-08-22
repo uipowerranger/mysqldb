@@ -1,8 +1,9 @@
-const OrderModel = require("../models/OrderModel");
-const ProductModel = require("../models/ProductModel");
-const UserModel = require("../models/UserModel");
-const RedeemModel = require("../models/RedeemModel");
-const StockMoveModel = require("../models/StockMoveModel");
+const {
+  createOrder,
+  getOrderById,
+  updatePayment,
+} = require("../services/OrderService");
+const { getUserById } = require("../services/UserService");
 const { body, validationResult } = require("express-validator");
 //helper file to prepare responses.
 const apiResponse = require("../helpers/apiResponse");
@@ -13,8 +14,7 @@ const mailer = require("../helpers/mailer");
 const eway = require("../helpers/eway");
 const twilio = require("../helpers/twilio");
 const { constants } = require("../helpers/constants");
-var mongoose = require("mongoose");
-mongoose.set("useFindAndModify", false);
+const moment = require("moment");
 
 /**
  * User registration.
@@ -76,7 +76,7 @@ exports.create = [
     .exists()
     .isNumeric(),
   // Process request after validation and sanitization.
-  (req, res) => {
+  async (req, res) => {
     try {
       // Extract the validation errors from a request.
       const errors = validationResult(req);
@@ -88,65 +88,61 @@ exports.create = [
           errors.array()
         );
       } else {
-        const { _id, ...rest } = req.body;
-        var order = new OrderModel({
+        let order = await createOrder({
+          ...req.body,
           user: req.user._id,
-          ...rest,
+          order_date: moment().format("YYYY-MM-DD"),
         });
-        // Save order.
-        order.save(function (err) {
-          if (err) {
-            return apiResponse.ErrorResponse(res, err);
-          }
-          let paymentData = {
-            Customer: {
-              FirstName: req.body.first_name,
-              LastName: req.body.last_name,
-              Street1: req.body.mailing_address.address1,
-              Street2: req.body.mailing_address.address2,
-              City: req.body.mailing_address.city,
-              State: req.body.mailing_address.state,
-              PostalCode: req.body.mailing_address.postcode,
-              Country: "au",
-              Email: req.body.email_id,
-              Mobile: req.body.phone_number,
-              Phone: req.body.phone_number,
-            },
-            Payment: {
-              TotalAmount: Number(req.body.total_amount) * 100,
-              InvoiceNumber: order._id,
-              InvoiceDescription: "Birlamart Purchase",
-              InvoiceReference: "",
-              CurrencyCode: "AUD",
-            },
-          };
-          //console.log(paymentData);
-          eway
-            .payment(paymentData)
-            .then(function (response) {
-              if (response.getErrors().length == 0) {
-                var redirectURL = response.get("SharedPaymentUrl");
-                let orderData = {
-                  _id: order._id,
-                  createdAt: order.createdAt,
-                  redirectURL: redirectURL,
-                };
-                return apiResponse.successResponseWithData(
-                  res,
-                  "Order Success.",
-                  orderData
-                );
-              } else {
-                return apiResponse.ErrorResponse(res, response);
-              }
-            })
-            .catch(function (reason) {
-              reason.getErrors().forEach(function (error) {
-                console.log("Response Messages: " + (error, "en"));
-              });
-              return apiResponse.ErrorResponse(res, reason.getErrors());
+        if (!order) {
+          return apiResponse.ErrorResponse(res, "Error Occured");
+        }
+        let paymentData = {
+          Customer: {
+            FirstName: req.body.first_name,
+            LastName: req.body.last_name,
+            Street1: req.body.mailing_address.address1,
+            Street2: req.body.mailing_address.address2,
+            City: req.body.mailing_address.city,
+            State: req.body.mailing_address.state,
+            PostalCode: req.body.mailing_address.postcode,
+            Country: "au",
+            Email: req.body.email_id,
+            Mobile: req.body.phone_number,
+            Phone: req.body.phone_number,
+          },
+          Payment: {
+            TotalAmount: Number(req.body.total_amount) * 100,
+            InvoiceNumber: order.order_id,
+            InvoiceDescription: "Birlamart Purchase",
+            InvoiceReference: "",
+            CurrencyCode: "AUD",
+          },
+        };
+        eway
+          .payment(paymentData)
+          .then(function (response) {
+            if (response.getErrors().length == 0) {
+              var redirectURL = response.get("SharedPaymentUrl");
+              let orderData = {
+                _id: order.order_id,
+                createdAt: order.order_date,
+                redirectURL: redirectURL,
+              };
+              return apiResponse.successResponseWithData(
+                res,
+                "Order Success.",
+                orderData
+              );
+            } else {
+              return apiResponse.ErrorResponse(res, response);
+            }
+          })
+          .catch(function (reason) {
+            reason.getErrors().forEach(function (error) {
+              console.log("Response Messages: " + (error, "en"));
             });
-        });
+            return apiResponse.ErrorResponse(res, reason.getErrors());
+          });
       }
     } catch (err) {
       //throw error in json response with status 500.
@@ -382,11 +378,7 @@ exports.OrderUpdateStatus = [
 ];
 
 const getUserData = async (user) => {
-  return new Promise((resolve, reject) => {
-    UserModel.findById(user)
-      .then((user) => resolve(user))
-      .catch((err) => reject(user));
-  });
+  return await getUserById(user);
 };
 
 exports.VerifyToken = [
@@ -395,7 +387,7 @@ exports.VerifyToken = [
     .exists()
     .isLength({ min: 10 })
     .withMessage("AccessCode cannot be empty"),
-  (req, res) => {
+  async (req, res) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -408,64 +400,61 @@ exports.VerifyToken = [
       } else {
         eway
           .getAccessCode(req.body.AccessCode)
-          .then(function (response) {
+          .then(async function (response) {
             if (response.get("Transactions[0].TransactionStatus")) {
-              OrderModel.findById(
-                response.get("Transactions[0].InvoiceNumber"),
-                async (err, data) => {
-                  let userData = await getUserData(data.user);
-                  let user = data.user;
-                  if (!!userData && !!userData.first_name) {
-                    user = userData.first_name + " " + userData.last_name;
-                  }
-                  if (!err) {
-                    OrderModel.updateOne(
-                      { _id: response.get("Transactions[0].InvoiceNumber") },
-                      { payment: 1 },
-                      function (err, data) {}
-                    );
-                    if (data.total_amount >= 100) {
-                      let redeem = Math.ceil(data.total_amount / 100);
-                      let redeemData = new RedeemModel({
-                        date: data.order_date,
-                        user: data.user,
-                        order_id: data._id,
-                        total_amount: data.total_amount,
-                        redeem_points: redeem,
-                      });
-                      redeemData.save((err, msg) => {});
-                    }
-                    if (data.redeempoints_used > 0) {
-                      let redeemDataUsed = new RedeemModel({
-                        date: data.order_date,
-                        user: data.user,
-                        order_id: data._id,
-                        total_amount: data.total_amount,
-                        redeem_points: data.redeempoints_used,
-                        status: 2,
-                      });
-                      redeemDataUsed.save((err, msg) => {});
-                    }
-                    data.items.map((it) => {
-                      let stock = new StockMoveModel({
-                        date: data.order_date,
-                        user: data.user,
-                        order_id: data._id,
-                        item_id: it.item_id,
-                        quantity: it.quantity,
-                        status: 1,
-                        transactionType: "By Order",
-                      });
-                      stock.save((err, msg) => {});
-                    });
-                    let html = `<html lang="en">
-
+              let data = await getOrderById(
+                response.get("Transactions[0].InvoiceNumber")
+              );
+              if (data.length > 0) {
+                let userData = await getUserData(data[0].user);
+                let user = data[0].user;
+                if (userData.length > 0) {
+                  user = userData[0].first_name + " " + userData[0].last_name;
+                }
+                await updatePayment(
+                  response.get("Transactions[0].InvoiceNumber"),
+                  1
+                );
+                if (data[0].total_amount >= 100) {
+                  let redeem = Math.ceil(data.total_amount / 100);
+                  let redeemData = new RedeemModel({
+                    date: data.order_date,
+                    user: data.user,
+                    order_id: data._id,
+                    total_amount: data.total_amount,
+                    redeem_points: redeem,
+                  });
+                  redeemData.save((err, msg) => {});
+                }
+                if (data[0].redeempoints_used > 0) {
+                  let redeemDataUsed = new RedeemModel({
+                    date: data.order_date,
+                    user: data.user,
+                    order_id: data._id,
+                    total_amount: data.total_amount,
+                    redeem_points: data.redeempoints_used,
+                    status: 2,
+                  });
+                  redeemDataUsed.save((err, msg) => {});
+                }
+                data.items.map((it) => {
+                  let stock = new StockMoveModel({
+                    date: data.order_date,
+                    user: data.user,
+                    order_id: data._id,
+                    item_id: it.item_id,
+                    quantity: it.quantity,
+                    status: 1,
+                    transactionType: "By Order",
+                  });
+                  stock.save((err, msg) => {});
+                });
+                let html = `<html lang="en">
                       <head>
                           <meta charset="UTF-8">
                           <meta http-equiv="X-UA-Compatible" content="IE=edge">
                           <meta name="viewport" content="width=device-width, initial-scale=1.0">
                       </head>
-
                       <body>
                           <div style="text-align: center;">
                               <h4>Birlamart Invoice</h4>
@@ -482,10 +471,9 @@ exports.VerifyToken = [
                               <p>Total Price:<strong>${data.total_amount}</strong></p>
                               <p>Bill Type: <strong>Visa/MasterCard/CreditCard/DebitCard</strong> </p>
                               <h4><u> Order Summary:</u></h4>`;
-
-                    html =
-                      html +
-                      `<table width="50%" border="2" style="margin:30px 10px;border-radius: 13px; border-spacing: 0; padding: 10px;">
+                html =
+                  html +
+                  `<table width="50%" border="2" style="margin:30px 10px;border-radius: 13px; border-spacing: 0; padding: 10px;">
                       <thead style=" background-color: #F1D4AF; border: 0;border-radius: 0;">
                           <tr>
                               <th>Sl.No</th>
@@ -495,23 +483,23 @@ exports.VerifyToken = [
                           </tr>
                       </thead>
                       <tbody>`;
-                    let orders = data.items.map((it, i) => {
-                      return (
-                        "<tr><td>" +
-                        parseInt(i + 1) +
-                        "</td><td>" +
-                        it.item_name +
-                        "</td><td style='align-items:center'>" +
-                        it.quantity +
-                        "</td><td style='align-items:center'>" +
-                        it.price +
-                        "</td></tr>"
-                      );
-                    });
-                    html = html + orders.join("");
-                    html =
-                      html +
-                      `</tbody>
+                let orders = data.items.map((it, i) => {
+                  return (
+                    "<tr><td>" +
+                    parseInt(i + 1) +
+                    "</td><td>" +
+                    it.item_name +
+                    "</td><td style='align-items:center'>" +
+                    it.quantity +
+                    "</td><td style='align-items:center'>" +
+                    it.price +
+                    "</td></tr>"
+                  );
+                });
+                html = html + orders.join("");
+                html =
+                  html +
+                  `</tbody>
                                   <tfoot style=" background-color: #C5E0DC;">
                                   <tr>
                                       <td colspan=" 3">
@@ -523,114 +511,103 @@ exports.VerifyToken = [
                           <div style="margin: 30px;">
                               <h4>Thanks,</h4>
                               <h4>Birlamart Team</h4>
-
                           </div>
                       </div>
                   </body>
-
                   </html>`;
-
-                    // Send confirmation email
-                    let customerPhone = response.get(
-                      "Transactions[0].Customer"
-                    );
-                    if (!!customerPhone.Phone) {
-                      twilio
-                        .create(
-                          customerPhone.Phone,
-                          `Your order with reference to order Id: ${response.get(
-                            "Transactions[0].InvoiceNumber"
-                          )} has been placed successfully on ${new Date().toLocaleString()} \n -Birlamart Team`
-                        )
-                        .then((tres) => console.log(tres.sid))
-                        .catch((err) => console.log(err));
-                    }
-                    mailer
-                      .send(
-                        constants.confirmEmails.from,
-                        data.email_id,
-                        "Your Order on Birlamart",
-                        html
-                      )
-                      .then(function () {
-                        return apiResponse.successResponseWithData(
-                          res,
-                          "Payment Success",
-                          {
-                            transaction: {
-                              TransactionID: response.get(
-                                "Transactions[0].TransactionID"
-                              ),
-                              TransactionStatus: response.get(
-                                "Transactions[0].TransactionStatus"
-                              ),
-                              AuthorisationCode: response.get(
-                                "Transactions[0].AuthorisationCode"
-                              ),
-                              ResponseCode: response.get(
-                                "Transactions[0].ResponseCode"
-                              ),
-                              ResponseMessage: response.get(
-                                "Transactions[0].ResponseMessage"
-                              ),
-                              InvoiceNumber: response.get(
-                                "Transactions[0].InvoiceNumber"
-                              ),
-                              InvoiceReference: response.get(
-                                "Transactions[0].InvoiceReference"
-                              ),
-                              TotalAmount: response.get(
-                                "Transactions[0].TotalAmount"
-                              ),
-                              Customer: response.get(
-                                "Transactions[0].Customer"
-                              ),
-                            },
-                          }
-                        );
-                      })
-                      .catch((err) => {
-                        return apiResponse.successResponseWithData(
-                          res,
-                          "Payment Success",
-                          {
-                            transaction: {
-                              TransactionID: response.get(
-                                "Transactions[0].TransactionID"
-                              ),
-                              TransactionStatus: response.get(
-                                "Transactions[0].TransactionStatus"
-                              ),
-                              AuthorisationCode: response.get(
-                                "Transactions[0].AuthorisationCode"
-                              ),
-                              ResponseCode: response.get(
-                                "Transactions[0].ResponseCode"
-                              ),
-                              ResponseMessage: response.get(
-                                "Transactions[0].ResponseMessage"
-                              ),
-                              InvoiceNumber: response.get(
-                                "Transactions[0].InvoiceNumber"
-                              ),
-                              InvoiceReference: response.get(
-                                "Transactions[0].InvoiceReference"
-                              ),
-                              TotalAmount: response.get(
-                                "Transactions[0].TotalAmount"
-                              ),
-                              Customer: response.get(
-                                "Transactions[0].Customer"
-                              ),
-                            },
-                          }
-                        );
-                      });
-                  } else {
-                    return apiResponse.ErrorResponse(res, "Error occured");
-                  }
+                // Send confirmation email
+                let customerPhone = response.get("Transactions[0].Customer");
+                if (!!customerPhone.Phone) {
+                  twilio
+                    .create(
+                      customerPhone.Phone,
+                      `Your order with reference to order Id: ${response.get(
+                        "Transactions[0].InvoiceNumber"
+                      )} has been placed successfully on ${new Date().toLocaleString()} \n -Birlamart Team`
+                    )
+                    .then((tres) => console.log(tres.sid))
+                    .catch((err) => console.log(err));
                 }
-              );
+                mailer
+                  .send(
+                    constants.confirmEmails.from,
+                    data.email_id,
+                    "Your Order on Birlamart",
+                    html
+                  )
+                  .then(function () {
+                    return apiResponse.successResponseWithData(
+                      res,
+                      "Payment Success",
+                      {
+                        transaction: {
+                          TransactionID: response.get(
+                            "Transactions[0].TransactionID"
+                          ),
+                          TransactionStatus: response.get(
+                            "Transactions[0].TransactionStatus"
+                          ),
+                          AuthorisationCode: response.get(
+                            "Transactions[0].AuthorisationCode"
+                          ),
+                          ResponseCode: response.get(
+                            "Transactions[0].ResponseCode"
+                          ),
+                          ResponseMessage: response.get(
+                            "Transactions[0].ResponseMessage"
+                          ),
+                          InvoiceNumber: response.get(
+                            "Transactions[0].InvoiceNumber"
+                          ),
+                          InvoiceReference: response.get(
+                            "Transactions[0].InvoiceReference"
+                          ),
+                          TotalAmount: response.get(
+                            "Transactions[0].TotalAmount"
+                          ),
+                          Customer: response.get("Transactions[0].Customer"),
+                        },
+                      }
+                    );
+                  })
+                  .catch((err) => {
+                    return apiResponse.successResponseWithData(
+                      res,
+                      "Payment Success",
+                      {
+                        transaction: {
+                          TransactionID: response.get(
+                            "Transactions[0].TransactionID"
+                          ),
+                          TransactionStatus: response.get(
+                            "Transactions[0].TransactionStatus"
+                          ),
+                          AuthorisationCode: response.get(
+                            "Transactions[0].AuthorisationCode"
+                          ),
+                          ResponseCode: response.get(
+                            "Transactions[0].ResponseCode"
+                          ),
+                          ResponseMessage: response.get(
+                            "Transactions[0].ResponseMessage"
+                          ),
+                          InvoiceNumber: response.get(
+                            "Transactions[0].InvoiceNumber"
+                          ),
+                          InvoiceReference: response.get(
+                            "Transactions[0].InvoiceReference"
+                          ),
+                          TotalAmount: response.get(
+                            "Transactions[0].TotalAmount"
+                          ),
+                          Customer: response.get("Transactions[0].Customer"),
+                        },
+                      }
+                    );
+                  });
+              } else {
+                return apiResponse.ErrorResponse(res, "Error occured");
+              }
             } else {
               var errorCodes = response
                 .get("Transactions[0].ResponseMessage")
